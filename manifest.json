@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "FocusBuddy",
+  "version": "1.1",
+  "description": "A Pomodoro-based focus timer with gamified features for course study.",
+  "permissions": ["tabs", "storage", "notifications", "downloads", "windows"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "icons": {
+    "48": "icons/icon48.png"
+  }
+}
