@@ -1,239 +1,213 @@
-document.querySelectorAll('.tab-button').forEach(button => {
-  button.addEventListener('click', () => {
-    document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
-    document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
-    button.classList.add('active');
-    document.getElementById(button.dataset.tab).classList.add('active');
-  });
-});
-
-// Load settings
-chrome.storage.local.get('settings', (result) => {
-  let settings = result.settings || {};
-  document.getElementById('focus-time').value = settings.focusTime || 25;
-  document.getElementById('break-time').value = settings.breakTime || 5;
-  document.getElementById('daily-goal').value = settings.dailyGoal || 4;
-  document.getElementById('tracking-domain').value = settings.trackingDomain || '';
-  document.getElementById('show-end-focus').checked = settings.showEndFocus || false;
-});
-
-// Save settings
-document.getElementById('save-settings').addEventListener('click', () => {
-  let settings = {
-    focusTime: parseInt(document.getElementById('focus-time').value) || 25,
-    breakTime: parseInt(document.getElementById('break-time').value) || 5,
-    dailyGoal: parseFloat(document.getElementById('daily-goal').value) || 4,
-    trackingDomain: document.getElementById('tracking-domain').value.trim(),
-    showEndFocus: document.getElementById('show-end-focus').checked
-  };
-  chrome.storage.local.set({ settings });
-});
-
-function formatTime(seconds) {
-  let mins = Math.floor(seconds / 60);
-  let secs = Math.floor(seconds % 60);
-  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-}
-
-// Update timer UI
-function updateTimer() {
-  chrome.runtime.sendMessage({ action: 'getState' }, (response) => {
-    const stateEl = document.getElementById('state');
-    const timeEl = document.getElementById('time-remaining');
-    const focusEl = document.getElementById('focus-status');
-    const startBtn = document.getElementById('start-button');
-    const pauseBtn = document.getElementById('pause-button');
-    const resumeBtn = document.getElementById('resume-button');
-    const stopBtn = document.getElementById('stop-button');
-    const breakBtn = document.getElementById('break-button');
-    const endFocusBtn = document.getElementById('end-focus-button');
-    const endFocusPoints = document.getElementById('end-focus-points');
-
-    chrome.storage.local.get('settings', (result) => {
-      const showEndFocus = result.settings?.showEndFocus || false;
-
-      if (response.state === 'idle') {
-        stateEl.textContent = 'Idle';
-        timeEl.textContent = '';
-        focusEl.textContent = '';
-        startBtn.classList.remove('hidden');
-        pauseBtn.classList.add('hidden');
-        resumeBtn.classList.add('hidden');
-        stopBtn.classList.add('hidden');
-        breakBtn.classList.remove('hidden');
-        endFocusBtn.classList.add('hidden');
-        endFocusPoints.classList.add('hidden');
-      } else if (response.state === 'focusing') {
-        stateEl.textContent = response.isPaused ? 'Paused' : 'Focusing';
-        timeEl.textContent = `Time remaining: ${formatTime(response.timeRemaining)}`;
-        focusEl.textContent = response.isPaused ? '' : (response.isCurrentlyFocused ? 'Focus' : 'Distracted');
-        focusEl.className = response.isPaused ? '' : (response.isCurrentlyFocused ? 'focus' : 'distracted');
-        startBtn.classList.add('hidden');
-        breakBtn.classList.add('hidden');
-        if (showEndFocus) {
-          endFocusBtn.classList.remove('hidden');
-          endFocusPoints.classList.remove('hidden');
+document.addEventListener('DOMContentLoaded', () => {
+    const elements = {
+      timerDisplay: document.getElementById('timer-display'),
+      focusStatus: document.getElementById('focus-status'),
+      errorMessage: document.getElementById('error-message'),
+      startFocus: document.getElementById('start-focus'),
+      startBreak: document.getElementById('start-break'),
+      pauseSession: document.getElementById('pause-session'),
+      resumeSession: document.getElementById('resume-session'),
+      stopSession: document.getElementById('stop-session'),
+      statsPoints: document.getElementById('stats-points'),
+      statsFocus: document.getElementById('stats-focus'),
+      statsStreak: document.getElementById('stats-streak'),
+      statsMultiplier: document.getElementById('stats-multiplier'),
+      level: document.getElementById('level'),
+      challengeProgress: document.getElementById('challenge-progress'),
+      achievements: document.getElementById('achievements'),
+      achievementCount: document.getElementById('achievement-count'),
+      viewMore: document.getElementById('view-more'),
+      focusTime: document.getElementById('focus-time'),
+      breakTime: document.getElementById('break-time'),
+      trackedSites: document.getElementById('tracked-sites'),
+      activeDays: document.getElementById('active-days'),
+      showResults: document.getElementById('show-results'),
+      penaltyNotif: document.getElementById('penalty-notif'),
+      saveSettings: document.getElementById('save-settings'),
+      reportIssue: document.getElementById('report-issue'),
+      exportStats: document.getElementById('export-stats'),
+    };
+  
+    let lastPoints = 0;
+  
+    function formatTime(seconds) {
+      const mins = Math.floor(seconds / 60).toString().padStart(2, '0');
+      const secs = (seconds % 60).toString().padStart(2, '0');
+      return `${mins}:${secs}`;
+    }
+  
+    async function updateUI() {
+      try {
+        const { currentSession, focusTime, isPaused, lastError } = await chrome.runtime.sendMessage({ type: 'getSession' });
+        const { dailyStats, focusDates, streak, achievements } = await chrome.runtime.sendMessage({ type: 'getStats' });
+        const settings = await chrome.runtime.sendMessage({ type: 'getSettings' });
+        
+        elements.errorMessage.style.display = lastError ? 'block' : 'none';
+        elements.errorMessage.textContent = lastError || '';
+  
+        if (currentSession) {
+          const elapsed = isPaused ? 
+            Math.floor((currentSession.pausedTime - currentSession.startTime) / 1000) :
+            Math.floor((Date.now() - currentSession.startTime) / 1000);
+          const remaining = Math.max(currentSession.duration - elapsed, 0);
+          elements.timerDisplay.textContent = formatTime(remaining);
+          
+          if (isPaused) {
+            elements.focusStatus.textContent = 'Paused';
+            elements.focusStatus.style.color = '#333';
+            elements.startFocus.style.display = 'none';
+            elements.startBreak.style.display = 'none';
+            elements.pauseSession.style.display = 'none';
+            elements.resumeSession.style.display = 'inline';
+            elements.stopSession.style.display = 'inline';
+          } else {
+            const isFocused = focusTime > elapsed / 2;
+            elements.focusStatus.textContent = isFocused ? 'Focused' : 'Distracted';
+            elements.focusStatus.style.color = isFocused ? '#4CAF50' : '#F44336';
+            elements.startFocus.style.display = 'none';
+            elements.startBreak.style.display = 'none';
+            elements.pauseSession.style.display = 'inline';
+            elements.resumeSession.style.display = 'none';
+            elements.stopSession.style.display = 'inline';
+          }
         } else {
-          endFocusBtn.classList.add('hidden');
-          endFocusPoints.classList.add('hidden');
+          elements.timerDisplay.textContent = formatTime(settings.focusTime);
+          elements.focusStatus.textContent = 'Not Started';
+          elements.focusStatus.style.color = '#333';
+          elements.startFocus.style.display = 'inline';
+          elements.startBreak.style.display = 'inline';
+          elements.pauseSession.style.display = 'none';
+          elements.resumeSession.style.display = 'none';
+          elements.stopSession.style.display = 'none';
         }
-        if (response.isPaused) {
-          pauseBtn.classList.add('hidden');
-          resumeBtn.classList.remove('hidden');
-          stopBtn.classList.remove('hidden');
-        } else {
-          pauseBtn.classList.remove('hidden');
-          resumeBtn.classList.add('hidden');
-          stopBtn.classList.remove('hidden');
+  
+        const today = new Date().toISOString().split('T')[0];
+        const todayStats = dailyStats[today] || { points: 0, focusTime: 0, challengeProgress: 0 };
+        
+        if (todayStats.points !== lastPoints) {
+          elements.statsPoints.classList.add('animate-points');
+          setTimeout(() => elements.statsPoints.classList.remove('animate-points'), 1000);
+          lastPoints = todayStats.points;
         }
-      } else if (response.state === 'breaking') {
-        stateEl.textContent = 'Break';
-        timeEl.textContent = `Time remaining: ${formatTime(response.timeRemaining)}`;
-        focusEl.textContent = '';
-        startBtn.classList.add('hidden');
-        pauseBtn.classList.add('hidden');
-        resumeBtn.classList.add('hidden');
-        stopBtn.classList.add('hidden');
-        breakBtn.classList.add('hidden');
-        endFocusBtn.classList.add('hidden');
-        endFocusPoints.classList.add('hidden');
+        
+        elements.statsPoints.textContent = todayStats.points.toFixed(1);
+        elements.statsFocus.textContent = Math.round(todayStats.focusTime);
+        elements.statsStreak.textContent = streak;
+        elements.statsMultiplier.textContent = Math.min(1 + streak * 0.1, 2).toFixed(1);
+        elements.challengeProgress.textContent = todayStats.challengeProgress || 0;
+  
+        const totalPoints = Object.values(dailyStats).reduce((sum, stats) => sum + stats.points, 0);
+        const level = Math.floor(totalPoints / 10);
+        elements.level.textContent = level;
+  
+        elements.achievements.innerHTML = achievements.map(ach => `<li title="Unlocked: ${ach.unlockedAt}">${ach.name}</li>`).join('');
+        elements.achievementCount.textContent = achievements.length;
+      } catch (e) {
+        elements.errorMessage.style.display = 'block';
+        elements.errorMessage.textContent = `UI Error: ${e.message}`;
+      }
+    }
+  
+    elements.startFocus.addEventListener('click', () => chrome.runtime.sendMessage({ type: 'startFocus' }));
+    elements.startBreak.addEventListener('click', () => chrome.runtime.sendMessage({ type: 'startBreak' }));
+    elements.pauseSession.addEventListener('click', () => chrome.runtime.sendMessage({ type: 'pauseSession' }));
+    elements.resumeSession.addEventListener('click', () => chrome.runtime.sendMessage({ type: 'resumeSession' }));
+    elements.stopSession.addEventListener('click', () => chrome.runtime.sendMessage({ type: 'stopSession' }));
+  
+    async function loadSettings() {
+      try {
+        const settings = await chrome.runtime.sendMessage({ type: 'getSettings' });
+        elements.focusTime.value = settings.focusTime / 60;
+        elements.breakTime.value = settings.breakTime / 60;
+        elements.trackedSites.value = settings.trackedSites.join('\n');
+        Array.from(elements.activeDays.options).forEach(opt => 
+          opt.selected = settings.activeDays.includes(Number(opt.value)));
+        elements.showResults.checked = settings.showResultsTab;
+        elements.penaltyNotif.checked = settings.enablePenaltyNotifications;
+      } catch (e) {
+        elements.errorMessage.style.display = 'block';
+        elements.errorMessage.textContent = `Settings Load Error: ${e.message}`;
+      }
+    }
+  
+    elements.saveSettings.addEventListener('click', async () => {
+      try {
+        const settings = {
+          focusTime: Math.max(1, Number(elements.focusTime.value)) * 60,
+          breakTime: Math.max(1, Number(elements.breakTime.value)) * 60,
+          trackedSites: elements.trackedSites.value.split('\n').filter(Boolean),
+          activeDays: Array.from(elements.activeDays.selectedOptions).map(opt => Number(opt.value)),
+          showResultsTab: elements.showResults.checked,
+          enablePenaltyNotifications: elements.penaltyNotif.checked,
+        };
+        await chrome.runtime.sendMessage({ type: 'updateSettings', settings });
+        updateUI();
+      } catch (e) {
+        elements.errorMessage.style.display = 'block';
+        elements.errorMessage.textContent = `Settings Error: ${e.message}`;
       }
     });
-
-    // Update daily challenge
-    chrome.storage.local.get(['dailyChallenge'], (result) => {
-      const today = new Date().toISOString().split('T')[0];
-      let challenge = result.dailyChallenge || { date: '', sessions: 0, target: 3, completed: false };
-      if (challenge.date !== today) {
-        challenge = { date: today, sessions: 0, target: 3, completed: false };
-        chrome.storage.local.set({ dailyChallenge: challenge });
-      }
-      const challengeEl = document.getElementById('daily-challenge');
-      if (challenge.completed) {
-        challengeEl.textContent = 'Daily Challenge Completed: Earned 0.5 bonus points!';
-      } else {
-        challengeEl.textContent = `Daily Challenge: Complete ${challenge.target} focus sessions (${challenge.sessions}/${challenge.target})`;
+  
+    elements.reportIssue.addEventListener('click', async () => {
+      try {
+        const { logs } = await chrome.runtime.sendMessage({ type: 'getLogs' });
+        const blob = new Blob([JSON.stringify(logs, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'focusbuddy-log.json';
+        link.click();
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        elements.errorMessage.style.display = 'block';
+        elements.errorMessage.textContent = `Log Download Error: ${e.message}`;
       }
     });
+  
+    elements.exportStats.addEventListener('click', async () => {
+      try {
+        const { dailyStats, focusDates, achievements } = await chrome.runtime.sendMessage({ type: 'exportStats' });
+        const blob = new Blob([JSON.stringify({ dailyStats, focusDates, achievements }, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'focusbuddy-stats.json';
+        link.click();
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        elements.errorMessage.style.display = 'block';
+        elements.errorMessage.textContent = `Stats Export Error: ${e.message}`;
+      }
+    });
+  
+    elements.viewMore.addEventListener('click', () => {
+      chrome.runtime.sendMessage({ type: 'getStats' }).then(({ dailyStats }) => {
+        const weeklyStats = Object.entries(dailyStats)
+          .filter(([date]) => new Date(date) > new Date().setDate(new Date().getDate() - 7))
+          .reduce((acc, [, stats]) => ({
+            points: acc.points + stats.points,
+            focusTime: acc.focusTime + stats.focusTime
+          }), { points: 0, focusTime: 0 });
+        const monthlyStats = Object.entries(dailyStats)
+          .filter(([date]) => new Date(date) > new Date().setDate(new Date().getDate() - 30))
+          .reduce((acc, [, stats]) => ({
+            points: acc.points + stats.points,
+            focusTime: acc.focusTime + stats.focusTime
+          }), { points: 0, focusTime: 0 });
+        alert(`Weekly: ${weeklyStats.focusTime.toFixed(0)} min, ${weeklyStats.points.toFixed(1)} points\nMonthly: ${monthlyStats.focusTime.toFixed(0)} min, ${monthlyStats.points.toFixed(1)} points`);
+      });
+    });
+  
+    document.querySelectorAll('.nav-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-content').forEach(tab => tab.style.display = 'none');
+        document.getElementById(btn.dataset.tab).style.display = 'block';
+        document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        if (btn.dataset.tab === 'settings-tab') loadSettings();
+      });
+    });
+  
+    setInterval(updateUI, 1000);
+    updateUI();
   });
-}
-
-// Update stats
-function updateStats() {
-  chrome.storage.local.get(['dailyPoints', 'streaks', 'settings', 'stats', 'achievements'], (result) => {
-    let dailyPoints = result.dailyPoints || {};
-    let streaks = result.streaks || { current: 0, max: 0 };
-    let settings = result.settings || { dailyGoal: 4 };
-    let stats = result.stats || { totalPoints: 0, totalSessions: 0 };
-    let achievements = result.achievements || {};
-    let today = new Date().toISOString().split('T')[0];
-    let todayPoints = dailyPoints[today] || 0;
-
-    // Update points display with animation
-    const todayPointsEl = document.getElementById('today-points');
-    if (todayPointsEl.textContent !== todayPoints.toString()) {
-      todayPointsEl.classList.add('animate-pulse');
-      setTimeout(() => todayPointsEl.classList.remove('animate-pulse'), 1000);
-    }
-    todayPointsEl.textContent = todayPoints;
-    let dots = Math.floor(todayPoints);
-    document.getElementById('today-dots').innerHTML = '<span class="dot"></span>'.repeat(dots);
-    document.getElementById('daily-progress').style.width = `${Math.min((todayPoints / settings.dailyGoal) * 100, 100)}%`;
-
-    let weekPoints = 0;
-    let monthPoints = 0;
-    let currentDate = new Date();
-    for (let i = 0; i < 7; i++) {
-      let date = new Date(currentDate - i * 86400000).toISOString().split('T')[0];
-      weekPoints += dailyPoints[date] || 0;
-    }
-    for (let date in dailyPoints) {
-      let d = new Date(date);
-      if (d.getMonth() === currentDate.getMonth() && d.getFullYear() === currentDate.getFullYear()) {
-        monthPoints += dailyPoints[date];
-      }
-    }
-    document.getElementById('week-points').textContent = weekPoints;
-    document.getElementById('month-points').textContent = monthPoints;
-    document.getElementById('streak').textContent = streaks.current;
-
-    // Calculate focus level
-    const totalPoints = stats.totalPoints || 0;
-    const levels = [
-      { level: 1, minPoints: 0, maxPoints: 10 },
-      { level: 2, minPoints: 11, maxPoints: 25 },
-      { level: 3, minPoints: 26, maxPoints: 50 },
-      { level: 4, minPoints: 51, maxPoints: 100 },
-      { level: 5, minPoints: 101, maxPoints: Infinity }
-    ];
-    const currentLevel = levels.find(l => totalPoints >= l.minPoints && totalPoints <= l.maxPoints) || levels[0];
-    const nextLevel = levels.find(l => l.level === currentLevel.level + 1);
-    const levelProgress = nextLevel ? ((totalPoints - currentLevel.minPoints) / (nextLevel.minPoints - currentLevel.minPoints)) * 100 : 100;
-    document.getElementById('focus-level').textContent = `${currentLevel.level} (${totalPoints} points)`;
-    document.getElementById('level-progress').style.width = `${Math.min(levelProgress, 100)}%`;
-
-    // Update achievements
-    const achievementList = [
-      { id: 'beginner', name: 'Beginner', desc: 'Earn 10 points', condition: () => totalPoints >= 10 },
-      { id: 'scholar', name: 'Scholar', desc: 'Earn 50 points', condition: () => totalPoints >= 50 },
-      { id: 'master', name: 'Master', desc: 'Earn 100 points', condition: () => totalPoints >= 100 },
-      { id: 'streak_starter', name: 'Streak Starter', desc: '3-day streak', condition: () => streaks.max >= 3 },
-      { id: 'streak_pro', name: 'Streak Pro', desc: '7-day streak', condition: () => streaks.max >= 7 },
-      { id: 'marathon', name: 'Marathon', desc: 'Complete 10 focus sessions', condition: () => stats.totalSessions >= 10 },
-      { id: 'super_focus', name: 'Super Focus', desc: 'Earn 5 points in one day', condition: () => todayPoints >= 5 }
-    ];
-    achievementList.forEach(ach => {
-      if (ach.condition() && !achievements[ach.id]) {
-        achievements[ach.id] = true;
-        chrome.storage.local.set({ achievements });
-      }
-    });
-    const achievementHtml = achievementList.map(ach => {
-      const unlocked = achievements[ach.id];
-      return `<div class="achievement ${unlocked ? 'unlocked' : 'locked'}">${ach.name}: ${ach.desc}</div>`;
-    }).join('');
-    document.getElementById('achievements').innerHTML = achievementHtml;
-  });
-}
-
-// Button actions
-document.getElementById('start-button').addEventListener('click', () => {
-  chrome.runtime.sendMessage({ action: 'startFocus' }, updateTimer);
-});
-document.getElementById('pause-button').addEventListener('click', () => {
-  chrome.runtime.sendMessage({ action: 'pauseFocus' }, updateTimer);
-});
-document.getElementById('resume-button').addEventListener('click', () => {
-  chrome.runtime.sendMessage({ action: 'resumeFocus' }, updateTimer);
-});
-document.getElementById('stop-button').addEventListener('click', () => {
-  chrome.runtime.sendMessage({ action: 'stopFocus' }, updateTimer);
-});
-document.getElementById('break-button').addEventListener('click', () => {
-  chrome.runtime.sendMessage({ action: 'startBreak' }, updateTimer);
-});
-document.getElementById('end-focus-button').addEventListener('click', () => {
-  const points = parseFloat(document.getElementById('end-focus-points').value);
-  chrome.runtime.sendMessage({ action: 'endFocusImmediately', points }, updateTimer);
-});
-document.getElementById('export-stats').addEventListener('click', () => {
-  chrome.runtime.sendMessage({ action: 'exportStats' });
-});
-document.getElementById('reset-stats').addEventListener('click', () => {
-  if (confirm('Are you sure you want to reset all stats?')) {
-    chrome.runtime.sendMessage({ action: 'resetStats' }, updateStats);
-  }
-});
-
-// Handle updateStats message
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === 'updateStats') {
-    updateStats();
-  }
-});
-
-// Initial updates
-updateTimer();
-updateStats();
-setInterval(updateTimer, 1000);
-setInterval(updateStats, 5000);

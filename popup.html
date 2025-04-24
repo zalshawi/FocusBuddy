@@ -2,266 +2,74 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Study Focus</title>
-  <style>
-    body {
-      font-family: 'Arial', sans-serif;
-      width: 320px;
-      padding: 15px;
-      background-color: #f5f5f5;
-      color: #333;
-    }
-    .tab {
-      display: none;
-    }
-    .tab.active {
-      display: block;
-    }
-    .tab-buttons {
-      display: flex;
-      justify-content: space-around;
-      margin-bottom: 15px;
-    }
-    .tab-button {
-      padding: 8px 16px;
-      background-color: #e0e0e0;
-      border: none;
-      cursor: pointer;
-      border-radius: 4px;
-      transition: background-color 0.3s;
-    }
-    .tab-button.active {
-      background-color: #4CAF50;
-      color: white;
-    }
-    .tab-button:hover {
-      background-color: #d0d0d0;
-    }
-    h2 {
-      font-size: 18px;
-      margin-bottom: 10px;
-      color: #4CAF50;
-    }
-    #state, #focus-status {
-      font-weight: bold;
-    }
-    #focus-status.focus {
-      color: #4CAF50;
-    }
-    #focus-status.distracted {
-      color: #F44336;
-    }
-    .timer-display {
-      font-size: 24px;
-      text-align: center;
-      margin: 10px 0;
-    }
-    button {
-      padding: 8px 16px;
-      margin: 5px;
-      background-color: #4CAF50;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      transition: background-color 0.3s;
-    }
-    button:hover:not(.hidden) {
-      background-color: #45a049;
-    }
-    .danger {
-      background-color: #F44336;
-    }
-    .danger:hover:not(.hidden) {
-      background-color: #d32f2f;
-    }
-    input, select {
-      width: 100%;
-      padding: 5px;
-      margin: 5px 0;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-    }
-    /* label {
-      display: block;
-      margin: 5px 0;
-    } */
-    .dot {
-      height: 10px;
-      width: 10px;
-      background-color: #4CAF50;
-      border-radius: 50%;
-      display: inline-block;
-      margin-right: 5px;
-    }
-    .achievement {
-      margin: 5px 0;
-      padding: 5px;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-    }
-    .achievement.unlocked {
-      background-color: #e8f5e9;
-    }
-    .achievement.locked {
-      opacity: 0.5;
-    }
-    .progress-bar {
-      width: 100%;
-      background-color: #e0e0e0;
-      border-radius: 4px;
-      margin: 10px 0;
-    }
-    .progress-fill {
-      height: 20px;
-      background-color: #4CAF50;
-      border-radius: 4px;
-      transition: width 0.3s;
-    }
-    .progress-fill.level {
-      background-color: #2196F3;
-    }
-    .hidden {
-      display: none;
-    }
-    .end-focus-container {
-      display: flex;
-      align-items: center;
-    }
-    .end-focus-container select {
-      width: auto;
-      margin-left: 10px;
-    }
-    .challenge {
-      background-color: #fff3e0;
-      padding: 10px;
-      border-radius: 4px;
-      margin: 10px 0;
-    }
-    .animate-pulse {
-      animation: pulse 1s ease-in-out;
-    }
-    @keyframes pulse {
-      0% { transform: scale(1); }
-      50% { transform: scale(1.1); }
-      100% { transform: scale(1); }
-    }
-    .switch {
-      position: relative;
-      display: inline-block;
-      width: 50px;
-      height: 24px;
-      margin-left: 10px;
-    }
-
-    .switch input {
-      opacity: 0;
-      width: 0;
-      height: 0;
-    }
-
-    .slider {
-      position: absolute;
-      cursor: pointer;
-      background-color: #ccc;
-      border-radius: 24px;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      transition: 0.4s;
-    }
-
-    .slider:before {
-      position: absolute;
-      content: "";
-      height: 18px;
-      width: 18px;
-      left: 3px;
-      bottom: 3px;
-      background-color: white;
-      border-radius: 50%;
-      transition: 0.4s;
-    }
-
-    input:checked + .slider {
-      background-color: #4CAF50;
-    }
-
-    input:checked + .slider:before {
-      transform: translateX(26px);
-    }
-  </style>
+  <title>FocusBuddy</title>
+  <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <div class="tab-buttons">
-    <button class="tab-button active" data-tab="timer-tab">Timer</button>
-    <button class="tab-button" data-tab="stats-tab">Stats</button>
-    <button class="tab-button" data-tab="settings-tab">Settings</button>
-  </div>
-
-  <div id="timer-tab" class="tab active">
-    <h2>Timer</h2>
-    <div id="daily-challenge" class="challenge"></div>
-    <div id="state">Idle</div>
-    <div id="time-remaining" class="timer-display"></div>
-    <div id="focus-status"></div>
-    <div>
-      <button id="start-button">Start Focus</button>
-      <button id="pause-button" class="hidden">Pause</button>
-      <button id="resume-button" class="hidden">Resume</button>
-      <button id="stop-button" class="hidden">Stop</button>
-      <button id="break-button" class="hidden">Start Break</button>
-      <div class="end-focus-container">
-        <button id="end-focus-button" class="hidden">End Focus (Test)</button>
-        <select id="end-focus-points" class="hidden">
-          <option value="0">0 points</option>
-          <option value="0.5">0.5 points</option>
-          <option value="1">1 point</option>
+  <div id="tabs">
+    <div id="timer-tab" class="tab-content">
+      <h1 id="timer-display">25:00</h1>
+      <p id="focus-status">Not Started</p>
+      <p id="error-message" style="display: none; color: #F44336;"></p>
+      <div id="timer-controls">
+        <button id="start-focus" title="Start a focus session">Start Focus</button>
+        <button id="start-break" title="Take a break">Start Break</button>
+        <button id="pause-session" title="Pause your session without losing progress" style="display: none;">Pause</button>
+        <button id="resume-session" title="Resume your paused session" style="display: none;">Resume</button>
+        <button id="stop-session" title="Stop ends your session with no points" style="display: none;">Stop</button>
+      </div>
+    </div>
+    <div id="stats-tab" class="tab-content" style="display: none;">
+      <p title="Complete 3 focus sessions (25+ min each) to earn a bonus point">Daily Challenge: <span id="challenge-progress">0</span>/3 sessions</p>
+      <p title="Points earned today from focus sessions">Today: <span id="stats-points"></span> points, <span id="stats-focus"></span> min</p>
+      <p title="Consecutive active days with focus sessions">Streak: <span id="stats-streak"></span> days, <span id="stats-multiplier"></span>x</p>
+      <p title="Level based on total points (10 points per level)">Level: <span id="level"></span></p>
+      <p title="Achievements earned (max 15)">Achievements (<span id="achievement-count">0</span>/15):</p>
+      <ul id="achievements"></ul>
+      <button id="view-more" title="View weekly and monthly stats">View More</button>
+    </div>
+    <div id="settings-tab" class="tab-content" style="display: none;">
+      <label title="Set duration for focus sessions in minutes">
+        Focus Time (min): <input id="focus-time" type="number" min="1">
+      </label>
+      <label title="Set duration for break sessions in minutes">
+        Break Time (min): <input id="break-time" type="number" min="1">
+      </label>
+      <label title="List websites to track for focus (one per line)">
+        Tracked Sites: <textarea id="tracked-sites"></textarea>
+      </label>
+      <label title="Select days to track for streaks">
+        Active Days:
+        <select id="active-days" multiple>
+          <option value="0">Sun</option>
+          <option value="1">Mon</option>
+          <option value="2">Tue</option>
+          <option value="3">Wed</option>
+          <option value="4">Thu</option>
+          <option value="5">Fri</option>
+          <option value="6">Sat</option>
         </select>
-      </div>
-    </div>
-  </div>
-
-  <div id="stats-tab" class="tab">
-    <h2>Stats</h2>
-    <div>
-      Focus Level: <span id="focus-level"></span>
-      <div class="progress-bar">
-        <div id="level-progress" class="progress-fill level" style="width: 0%"></div>
-      </div>
-    </div>
-    <div>
-      Today's points: <span id="today-points"></span> <span id="today-dots"></span>
-      <div class="progress-bar">
-        <div id="daily-progress" class="progress-fill" style="width: 0%"></div>
-      </div>
-    </div>
-    <div>This week's points: <span id="week-points"></span></div>
-    <div>This month's points: <span id="month-points"></span></div>
-    <div>Current streak: <span id="streak"></span> days</div>
-    <div>Achievements: <div id="achievements"></div></div>
-    <button id="export-stats">Export Stats (CSV)</button>
-    <button id="reset-stats" class="danger">Reset Stats</button>
-  </div>
-
-  <div id="settings-tab" class="tab">
-    <h2>Settings</h2>
-    <label>Focus time (minutes): <input id="focus-time" type="number"></label>
-    <label>Break time (minutes): <input id="break-time" type="number" min="1"></label>
-    <label>Daily goal (points): <input id="daily-goal" type="number" min="1" step="0.5"></label>
-    <label>Tracking domain: <input id="tracking-domain" type="text" placeholder="e.g., example.com"></label>
-    <label class="switch-label">
-      Show End Focus (Test) button:
-      <label class="switch">
-        <input id="show-end-focus" type="checkbox">
+      </label>
+      <label class="switch-label" title="Show session results in a new tab">
+        Show Results Tab
+        <input id="show-results" type="checkbox">
         <span class="slider"></span>
       </label>
-    </label>
-    <button id="save-settings">Save</button>
+      <label class="switch-label" title="Receive notifications for missed focus days">
+        Penalty Notifications
+        <input id="penalty-notif" type="checkbox">
+        <span class="slider"></span>
+      </label>
+      <button id="save-settings" title="Save your settings">Save</button>
+      <button id="report-issue" title="Download your log for support">Report Issue</button>
+      <button id="export-stats" title="Export your stats as JSON">Export Stats</button>
+    </div>
   </div>
-
+  <nav>
+    <button class="nav-btn active" data-tab="timer-tab">Timer</button>
+    <button class="nav-btn" data-tab="stats-tab">Stats</button>
+    <button class="nav-btn" data-tab="settings-tab">Settings</button>
+  </nav>
   <script src="popup.js"></script>
 </body>
 </html>

@@ -1,291 +1,326 @@
-let settings = {};
-let state = 'idle';
-let startTime, endTime, focusedTime, lastCheckTime, currentTabId, isFocused;
-let breakEndTime;
-let isPaused = false;
-let pauseStartTime;
-let checkInterval;
-
-chrome.storage.local.get('settings', (result) => {
-  settings = result.settings || { focusTime: 25, breakTime: 5, dailyGoal: 4, trackingDomain: '', showEndFocus: false };
-});
-
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && changes.settings) {
-    settings = changes.settings.newValue;
+const defaultSettings = {
+    focusTime: 25 * 60,
+    breakTime: 5 * 60,
+    trackedSites: ['coursera.org', 'udacity.com'],
+    activeDays: [1, 2, 3, 4, 0],
+    showResultsTab: true,
+    enablePenaltyNotifications: true
+  };
+  
+  let currentSession = null;
+  let focusTime = 0;
+  let logs = [];
+  let isPaused = false;
+  let focusInterval = null;
+  let lastError = null;
+  let isEnding = false;
+  
+  function log(message, isError = false) {
+    const entry = `${new Date().toLocaleString()}: ${isError ? 'ERROR: ' : ''}${message}`;
+    logs.push(entry);
+    if (isError) lastError = entry;
   }
-});
-
-function startFocusSession() {
-  if (state !== 'idle') return;
-  state = 'focusing';
-  startTime = Date.now();
-  endTime = startTime + settings.focusTime * 60 * 1000;
-  focusedTime = 0;
-  lastCheckTime = startTime;
-  isPaused = false;
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-    if (tabs[0]) {
-      currentTabId = tabs[0].id;
-      isFocused = isOnTrackingDomain(tabs[0].url);
+  
+  async function loadSettings() {
+    try {
+      const { settings } = await chrome.storage.sync.get('settings');
+      return { ...defaultSettings, ...settings };
+    } catch (e) {
+      log(`Failed to load settings: ${e.message}`, true);
+      return defaultSettings;
     }
-    checkInterval = setInterval(checkFocusEnd, 1000);
-    updateBadge();
-  });
-  chrome.tabs.onActivated.addListener(onTabActivated);
-  chrome.tabs.onUpdated.addListener(onTabUpdated);
-}
-
-function pauseFocusSession() {
-  if (state !== 'focusing' || isPaused) return;
-  isPaused = true;
-  pauseStartTime = Date.now();
-  updateBadge();
-}
-
-function resumeFocusSession() {
-  if (state !== 'focusing' || !isPaused) return;
-  isPaused = false;
-  let pauseDuration = Date.now() - pauseStartTime;
-  endTime += pauseDuration;
-  lastCheckTime = Date.now();
-  updateBadge();
-}
-
-function stopFocusSession() {
-  if (state !== 'focusing') return;
-  chrome.tabs.onActivated.removeListener(onTabActivated);
-  chrome.tabs.onUpdated.removeListener(onTabUpdated);
-  clearInterval(checkInterval);
-  state = 'idle';
-  isPaused = false;
-  updateBadge();
-}
-
-function endFocusSession(customPoints = null) {
-  let now = Date.now();
-  let timeSpent = now - lastCheckTime;
-  if (isFocused && !isPaused) {
-    focusedTime += timeSpent;
   }
-  let T = settings.focusTime * 60 * 1000;
-  let ratio = focusedTime / T;
-  // Calculate multiplier based on streak
-  chrome.storage.local.get('streaks', (result) => {
-    let streaks = result.streaks || { current: 0, max: 0 };
-    let multiplier = 1 + 0.1 * Math.min(streaks.current, 5); // Max 1.5x at 5-day streak
-    let points = customPoints !== null ? customPoints : (ratio >= 5/6 ? 1 : ratio >= 3/6 ? 0.5 : 0);
-    points *= multiplier;
-    points = Math.round(points * 10) / 10; // Round to 1 decimal
-    console.log(`focusedTime: ${focusedTime}, T: ${T}, ratio: ${ratio}, multiplier: ${multiplier}, points: ${points}`);
-    let today = new Date().toISOString().split('T')[0];
-    chrome.storage.local.get(['dailyPoints', 'streaks', 'stats', 'dailyChallenge'], (result) => {
-      let dailyPoints = result.dailyPoints || {};
-      let streaks = result.streaks || { current: 0, max: 0 };
-      let stats = result.stats || { totalPoints: 0, totalSessions: 0 };
-      let dailyChallenge = result.dailyChallenge || { date: today, sessions: 0, target: 3, completed: false };
-      
-      dailyPoints[today] = (dailyPoints[today] || 0) + points;
-      stats.totalPoints = (stats.totalPoints || 0) + points;
-      stats.totalSessions = (stats.totalSessions || 0) + 1;
-      
-      if (points > 0) {
-        let yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
-        streaks.current = dailyPoints[yesterday] > 0 ? streaks.current + 1 : 1;
-        streaks.max = Math.max(streaks.max, streaks.current);
+  
+  async function saveSettings(settings) {
+    try {
+      await chrome.storage.sync.set({ settings });
+    } catch (e) {
+      log(`Failed to save settings: ${e.message}`, true);
+    }
+  }
+  
+  async function loadStats() {
+    try {
+      const { dailyStats = {}, focusDates = [], achievements = [] } = await chrome.storage.sync.get(['dailyStats', 'focusDates', 'achievements']);
+      return { dailyStats, focusDates, achievements };
+    } catch (e) {
+      log(`Failed to load stats: ${e.message}`, true);
+      return { dailyStats: {}, focusDates: [], achievements: [] };
+    }
+  }
+  
+  async function saveStats(dailyStats, focusDates, achievements) {
+    try {
+      await chrome.storage.sync.set({ dailyStats, focusDates, achievements });
+    } catch (e) {
+      log(`Failed to save stats: ${e.message}`, true);
+    }
+  }
+  
+  async function startSession(type, duration) {
+    try {
+      if (currentSession) {
+        await stopSession();
       }
-      
-      // Update daily challenge
-      if (dailyChallenge.date === today && !dailyChallenge.completed) {
-        dailyChallenge.sessions += 1;
-        if (dailyChallenge.sessions >= dailyChallenge.target) {
-          dailyChallenge.completed = true;
-          dailyPoints[today] += 0.5; // Bonus points
-          stats.totalPoints += 0.5;
-        }
-        chrome.storage.local.set({ dailyChallenge });
-      }
-      
-      chrome.storage.local.set({ dailyPoints, streaks, stats });
-      
-      chrome.tabs.onActivated.removeListener(onTabActivated);
-      chrome.tabs.onUpdated.removeListener(onTabUpdated);
-      clearInterval(checkInterval);
-      console.log(`Popup URL: end_session_popup.html?points=${points}`);
-      chrome.windows.create({
-        url: `end_session_popup.html?points=${encodeURIComponent(points)}`,
-        type: 'popup',
-        width: 400,
-        height: 200,
-        focused: true
-      }, (window) => {
-        setTimeout(() => {
-          if (window) {
-            chrome.windows.remove(window.id);
-          }
-        }, 5000);
-      });
-      state = 'idle';
+      currentSession = { type, startTime: Date.now(), duration, focusTime: 0, pausedTime: 0, isPaused: false };
+      focusTime = 0;
       isPaused = false;
-      updateBadge();
-      chrome.runtime.sendMessage({ action: 'updateStats' });
-    });
-  });
-}
-
-function startBreakSession() {
-  state = 'breaking';
-  breakEndTime = Date.now() + settings.breakTime * 60 * 1000;
-  setTimeout(endBreakSession, settings.breakTime * 60 * 1000);
-  updateBadge();
-}
-
-function endBreakSession() {
-  state = 'idle';
-  updateBadge();
-  chrome.notifications.create({
-    type: 'basic',
-    iconUrl: 'icons/icon48.png',
-    title: 'Break Over',
-    message: 'Ready for your next focus session?'
-  });
-}
-
-function onTabActivated(activeInfo) {
-  if (state !== 'focusing' || isPaused) return;
-  let now = Date.now();
-  let timeSpent = now - lastCheckTime;
-  if (isFocused) {
-    focusedTime += timeSpent;
-  }
-  lastCheckTime = now;
-  chrome.tabs.get(activeInfo.tabId, (tab) => {
-    if (tab) {
-      currentTabId = tab.id;
-      isFocused = isOnTrackingDomain(tab.url);
-      updateBadge();
+      lastError = null;
+      chrome.alarms.create('sessionEnd', { delayInMinutes: duration / 60 });
+      focusInterval = setInterval(trackFocus, 1000);
+      await trackFocus();
+      log(`${type} session started`);
+    } catch (e) {
+      log(`Failed to start session: ${e.message}`, true);
+      stopSession();
     }
-  });
-}
-
-function onTabUpdated(tabId, changeInfo, tab) {
-  if (state !== 'focusing' || isPaused || tabId !== currentTabId || !changeInfo.url) return;
-  let now = Date.now();
-  let timeSpent = now - lastCheckTime;
-  if (isFocused) {
-    focusedTime += timeSpent;
   }
-  lastCheckTime = now;
-  isFocused = isOnTrackingDomain(tab.url);
-  updateBadge();
-}
-
-function isOnTrackingDomain(url) {
-  if (!settings.trackingDomain || !url) return false;
-  try {
-    let hostname = new URL(url).hostname;
-    return hostname.endsWith(settings.trackingDomain);
-  } catch (e) {
-    return false;
+  
+  async function pauseSession() {
+    if (!currentSession || isPaused) {
+      log('Cannot pause: No active session or already paused', true);
+      return;
+    }
+    try {
+      isPaused = true;
+      currentSession.isPaused = true;
+      currentSession.pausedTime = Date.now();
+      chrome.alarms.clear('sessionEnd');
+      clearInterval(focusInterval);
+      updateBadge(currentSession.duration - Math.floor((Date.now() - currentSession.startTime) / 1000), true);
+      log('Session paused');
+    } catch (e) {
+      log(`Failed to pause session: ${e.message}`, true);
+    }
   }
-}
-
-function updateBadge() {
-  if (state === 'focusing') {
-    if (isPaused) {
-      chrome.action.setBadgeText({ text: 'P' });
-      chrome.action.setBadgeBackgroundColor({ color: '#FF9800' });
-    } else {
-      let remaining = Math.max(0, (endTime - Date.now()) / 1000);
-      let text = remaining > 60 ? Math.floor(remaining / 60).toString() : '<1';
-      chrome.action.setBadgeText({ text });
+  
+  async function resumeSession() {
+    if (!currentSession || !isPaused) {
+      log('Cannot resume: No paused session', true);
+      return;
+    }
+    try {
+      isPaused = false;
+      currentSession.isPaused = false;
+      const pauseDuration = Date.now() - currentSession.pausedTime;
+      currentSession.startTime += pauseDuration;
+      const remaining = currentSession.duration - Math.floor((Date.now() - currentSession.startTime) / 1000);
+      if (remaining <= 0) {
+        endSession();
+        return;
+      }
+      chrome.alarms.create('sessionEnd', { delayInMinutes: remaining / 60 });
+      focusInterval = setInterval(trackFocus, 1000);
+      await trackFocus();
+      log('Session resumed');
+    } catch (e) {
+      log(`Failed to resume session: ${e.message}`, true);
+      stopSession();
+    }
+  }
+  
+  async function stopSession() {
+    if (!currentSession) return;
+    try {
+      currentSession = null;
+      focusTime = 0;
+      isPaused = false;
+      clearInterval(focusInterval);
+      chrome.alarms.clear('sessionEnd');
+      chrome.action.setBadgeText({ text: '' });
+      log('Session stopped');
+    } catch (e) {
+      log(`Failed to stop session: ${e.message}`, true);
+    }
+  }
+  
+  async function trackFocus() {
+    if (!currentSession || isPaused) return;
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const settings = await loadSettings();
+      const isFocused = tab && tab.url && settings.trackedSites.some(site => tab.url.includes(site));
+      if (isFocused) {
+        focusTime += 1;
+      }
+      const elapsed = Math.floor((Date.now() - currentSession.startTime) / 1000);
+      if (elapsed >= currentSession.duration) {
+        endSession();
+        return;
+      }
+      updateBadge(Math.max(0, currentSession.duration - elapsed), isFocused);
+    } catch (e) {
+      log(`Failed to track focus: ${e.message}`, true);
+    }
+  }
+  
+  async function updateBadge(remainingSeconds, isFocused) {
+    try {
+      const minutes = Math.ceil(Math.max(0, remainingSeconds) / 60);
+      chrome.action.setBadgeText({ text: minutes > 0 ? minutes.toString() : '' });
       chrome.action.setBadgeBackgroundColor({ color: isFocused ? '#4CAF50' : '#F44336' });
+    } catch (e) {
+      log(`Failed to update badge: ${e.message}`, true);
     }
-  } else if (state === 'breaking') {
-    let remaining = Math.max(0, (breakEndTime - Date.now()) / 1000);
-    let text = remaining > 60 ? Math.floor(remaining / 60).toString() : '<1';
-    chrome.action.setBadgeText({ text });
-    chrome.action.setBadgeBackgroundColor({ color: '#2196F3' });
-  } else {
-    chrome.action.setBadgeText({ text: '' });
   }
-}
-
-function checkFocusEnd() {
-  if (state === 'focusing' && !isPaused && Date.now() >= endTime) {
-    clearInterval(checkInterval);
-    endFocusSession();
+  
+  async function endSession() {
+    if (!currentSession || isEnding) {
+      log('No active session to end or already ending', true);
+      return;
+    }
+    isEnding = true;
+    const sessionType = currentSession.type;
+    try {
+      const settings = await loadSettings();
+      const sessionDuration = currentSession.duration;
+      const focusRatio = focusTime / sessionDuration;
+      const basePoints = focusRatio >= 5/6 ? 1 : focusRatio >= 3/6 ? 0.5 : 0;
+      const { dailyStats, focusDates, achievements } = await loadStats();
+      const today = new Date().toISOString().split('T')[0];
+      const streak = calculateStreak(focusDates, settings.activeDays);
+      const multiplier = Math.min(1 + streak * 0.1, 2);
+      let actualPoints = basePoints * multiplier;
+  
+      dailyStats[today] = dailyStats[today] || { points: 0, focusTime: 0, sessions: 0, challengeProgress: 0 };
+      dailyStats[today].points += actualPoints;
+      dailyStats[today].focusTime += focusTime / 60;
+      dailyStats[today].sessions += 1;
+      if (sessionType === 'focus' && sessionDuration >= 1500) {
+        dailyStats[today].challengeProgress = (dailyStats[today].challengeProgress || 0) + 1;
+        if (dailyStats[today].challengeProgress >= 3 && !dailyStats[today].challengeCompleted) {
+          dailyStats[today].points += 1;
+          dailyStats[today].challengeCompleted = true;
+          actualPoints += 1;
+        }
+      }
+  
+      if (!focusDates.includes(today)) focusDates.push(today);
+  
+      const newAchievements = updateAchievements(achievements, dailyStats, streak, focusDates);
+      await saveStats(dailyStats, focusDates, newAchievements);
+      
+      if (sessionType === 'focus' && settings.showResultsTab) {
+        await chrome.alarms.clear('sessionEnd');
+        chrome.tabs.create({ url: 'results.html' });
+      }
+      
+      log(`Session ended: ${basePoints} base points, ${actualPoints} total points`);
+    } catch (e) {
+      log(`Failed to end session: ${e.message}`, true);
+    } finally {
+      currentSession = null;
+      focusTime = 0;
+      isPaused = false;
+      isEnding = false;
+      clearInterval(focusInterval);
+      chrome.alarms.clear('sessionEnd');
+      chrome.action.setBadgeText({ text: '' });
+    }
   }
-}
-
-function endFocusImmediately(points = null) {
-  if (state === 'focusing') {
-    clearInterval(checkInterval);
-    endFocusSession(points);
+  
+  function updateAchievements(achievements, dailyStats, streak, focusDates) {
+    if (achievements.length >= 15) return achievements;
+    const totalPoints = Object.values(dailyStats).reduce((sum, stats) => sum + stats.points, 0);
+    const totalSessions = Object.values(dailyStats).reduce((sum, stats) => sum + stats.sessions, 0);
+    const totalChallenges = Object.values(dailyStats).filter(stats => stats.challengeCompleted).length;
+    
+    const newAchievements = [...achievements];
+    const addAchievement = (name) => {
+      if (!newAchievements.some(ach => ach.name === name)) {
+        newAchievements.push({ name, unlockedAt: new Date().toLocaleString() });
+      }
+    };
+  
+    if (totalSessions >= 1) addAchievement('First Focus');
+    if (streak >= 3) addAchievement('3-Day Streak');
+    if (totalPoints >= 10) addAchievement('Point Collector');
+    if (totalSessions >= 5) addAchievement('Focus Novice');
+    if (totalSessions >= 10) addAchievement('Focus Pro');
+    if (streak >= 5) addAchievement('5-Day Streak');
+    if (totalPoints >= 25) addAchievement('Points Master');
+    if (totalChallenges >= 1) addAchievement('Challenge Starter');
+    if (totalSessions >= 25) addAchievement('Focus Expert');
+    if (streak >= 7) addAchievement('Week Streak');
+    if (totalPoints >= 50) addAchievement('Points Legend');
+    if (totalChallenges >= 3) addAchievement('Challenge Champion');
+    if (totalSessions >= 50) addAchievement('Focus Master');
+    if (focusDates.length >= 10) addAchievement('Consistent Worker');
+    if (totalChallenges >= 5) addAchievement('Challenge Legend');
+  
+    return newAchievements.slice(0, 15);
   }
-}
-
-function resetStats() {
-  chrome.storage.local.set({
-    dailyPoints: {},
-    streaks: { current: 0, max: 0 },
-    stats: { totalPoints: 0, totalSessions: 0 },
-    achievements: {},
-    dailyChallenge: { date: '', sessions: 0, target: 3, completed: false }
+  
+  function calculateStreak(focusDates, activeDays) {
+    let streak = 0;
+    let date = new Date();
+    while (true) {
+      const day = date.getDay();
+      const dateStr = date.toISOString().split('T')[0];
+      if (activeDays.includes(day)) {
+        if (focusDates.includes(dateStr)) streak++;
+        else break;
+      }
+      date.setDate(date.getDate() - 1);
+    }
+    return streak;
+  }
+  
+  chrome.tabs.onActivated.addListener(() => trackFocus());
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    if (changeInfo.status === 'complete' && currentSession && !isPaused) trackFocus();
   });
-}
-
-function exportStatsToCsv() {
-  chrome.storage.local.get(['dailyPoints'], (result) => {
-    let dailyPoints = result.dailyPoints || {};
-    let csv = 'Date,Points\n';
-    for (let date in dailyPoints) {
-      csv += `${date},${dailyPoints[date]}\n`;
-    }
-    let dataUrl = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
-    chrome.downloads.download({
-      url: dataUrl,
-      filename: 'study_focus_stats.csv',
-      saveAs: true
-    });
+  
+  chrome.alarms.onAlarm.addListener(alarm => {
+    if (alarm.name === 'sessionEnd' && currentSession && !isEnding) endSession();
   });
-}
-
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === 'getState') {
-    let response = { state, isPaused };
-    if (state === 'focusing') {
-      let now = Date.now();
-      response.timeRemaining = isPaused ? Math.max(0, (endTime - pauseStartTime) / 1000) : Math.max(0, (endTime - now) / 1000);
-      response.isCurrentlyFocused = isFocused;
-    } else if (state === 'breaking') {
-      let now = Date.now();
-      response.timeRemaining = Math.max(0, (breakEndTime - now) / 1000);
-    }
-    sendResponse(response);
-  } else if (request.action === 'startFocus') {
-    startFocusSession();
-    sendResponse({ success: true });
-  } else if (request.action === 'pauseFocus') {
-    pauseFocusSession();
-    sendResponse({ success: true });
-  } else if (request.action === 'resumeFocus') {
-    resumeFocusSession();
-    sendResponse({ success: true });
-  } else if (request.action === 'stopFocus') {
-    stopFocusSession();
-    sendResponse({ success: true });
-  } else if (request.action === 'startBreak') {
-    startBreakSession();
-    sendResponse({ success: true });
-  } else if (request.action === 'endFocusImmediately') {
-    endFocusImmediately(request.points);
-    sendResponse({ success: true });
-  } else if (request.action === 'resetStats') {
-    resetStats();
-    sendResponse({ success: true });
-  } else if (request.action === 'exportStats') {
-    exportStatsToCsv();
-    sendResponse({ success: true });
-  }
-});
+  
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    (async () => {
+      try {
+        if (message.type === 'startFocus') {
+          const settings = await loadSettings();
+          await startSession('focus', settings.focusTime);
+          sendResponse({ status: 'Focus started' });
+        } else if (message.type === 'startBreak') {
+          const settings = await loadSettings();
+          await startSession('break', settings.breakTime);
+          sendResponse({ status: 'Break started' });
+        } else if (message.type === 'pauseSession') {
+          await pauseSession();
+          sendResponse({ status: 'Session paused' });
+        } else if (message.type === 'resumeSession') {
+          await resumeSession();
+          sendResponse({ status: 'Session resumed' });
+        } else if (message.type === 'stopSession') {
+          await stopSession();
+          sendResponse({ status: 'Session stopped' });
+        } else if (message.type === 'getSession') {
+          sendResponse({ currentSession, focusTime, isPaused, lastError });
+        } else if (message.type === 'getStats') {
+          const { dailyStats, focusDates, achievements } = await loadStats();
+          const settings = await loadSettings();
+          sendResponse({ dailyStats, focusDates, streak: calculateStreak(focusDates, settings.activeDays), achievements });
+        } else if (message.type === 'updateSettings') {
+          await saveSettings(message.settings);
+          sendResponse({ status: 'Settings updated' });
+        } else if (message.type === 'getSettings') {
+          sendResponse(await loadSettings());
+        } else if (message.type === 'getLogs') {
+          sendResponse({ logs });
+        } else if (message.type === 'exportStats') {
+          const { dailyStats, focusDates, achievements } = await loadStats();
+          sendResponse({ dailyStats, focusDates, achievements });
+        }
+      } catch (e) {
+        log(`Message handler error: ${e.message}`, true);
+        sendResponse({ status: 'Error', message: e.message });
+      }
+    })();
+    return true;
+  });
+  
+  chrome.runtime.onInstalled.addListener(() => {
+    saveSettings(defaultSettings);
+    log('FocusBuddy installed');
+  });
