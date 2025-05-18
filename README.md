@@ -4,20 +4,20 @@
 
 ---
 
-## 🚀 Features
+## Features
 
-- ⏱️ **Pomodoro Timer** — Focus/Break cycles
-- 🎮 **Gamification** — Earn points, track streaks, level up!
-- 📊 **Progress Stats** — See daily, weekly, and monthly progress
-- 🏆 **Achievements** — Unlock badges for consistent focus
-- 🧠 **Focus Tracking** — Only counts time on your target study site
-- ⚙️ **Custom Settings** — Adjust focus/break durations, goals, and more
-- 💾 **Local Storage** — All your stats are saved in your browser
-- 📥 **Export Stats** — Download your data in CSV format
+- **Pomodoro Timer** — Focus/Break cycles
+- **Gamification** — Earn points, track streaks, level up!
+- **Progress Stats** — See daily, weekly, and monthly progress
+- **Achievements** — Unlock badges for consistent focus
+- **Focus Tracking** — Only counts time on your target study site
+- **Custom Settings** — Adjust focus/break durations, goals, and more
+- **Local Storage** — All your stats are saved in your browser
+- **Export Stats** — Download your data in CSV format
 
 ---
 
-## 🛠️ Setup
+## Setup
 
 1. Clone or download this repo
 2. Open `chrome://extensions/` in your browser
@@ -26,7 +26,7 @@
 
 ---
 
-## 📌 Permissions
+## Permissions
 
 - `tabs`: To track which tab is active
 - `storage`: To save user settings and stats
@@ -37,12 +37,12 @@
 ---
 
 
-## 📞 Contact
+## Contact
 
 Made by Ziyad — feel free to reach out or contribute!
 
 ---
 
-## 🧪 Note
+## Note
 
 This extension is still in active development. Feedback is welcome!
