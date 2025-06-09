@@ -24,6 +24,7 @@
 3. Enable "Developer mode"
 4. Click "Load unpacked" and select the folder
 
+[**Setup Walkthrough Video**](https://jmp.sh/s/ADpsEolMSxaDup2CEgpJ)
 ---
 
 ## Permissions
