@@ -13,7 +13,7 @@
 - **Focus Tracking** — Only counts time on your target study site
 - **Custom Settings** — Adjust focus/break durations, goals, and more
 - **Local Storage** — All your stats are saved in your browser
-- **Export Stats** — Download your data in CSV format
+- **Export Stats** — Download your data in JSON format
 
 ---
 
@@ -32,7 +32,7 @@
 - `tabs`: To track which tab is active
 - `storage`: To save user settings and stats
 - `notifications`: For break reminders
-- `downloads`: For CSV export
+- `downloads`: For JSON export
 - `windows`: To show session end popups
 
 ---
@@ -46,4 +46,4 @@ Made by Ziyad — feel free to reach out or contribute!
 
 ## Note
 
-This extension is still in active development. Feedback is welcome!
+This extension is currently in Beta. Your feedback is highly appreciated.
