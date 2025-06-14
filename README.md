@@ -24,7 +24,7 @@
 3. Enable "Developer mode"
 4. Click "Load unpacked" and select the folder
 
-[**Setup Walkthrough Video**](https://drive.google.com/file/d/1yw6Ak3UoUO_Sqp7sxw9NCBcQNRZoy8cF/view?usp=sharing)
+[**Setup Walkthrough Video**](https://drive.google.com/file/d/1BW1vg2yZe3ileTTDZ_mGXdhL123w83P7/view?usp=sharing)
 ---
 
 ## Permissions
